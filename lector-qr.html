@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lector QR</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+  body {
+    font-family: -apple-system, Arial, sans-serif;
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 16px;
+    background: #111;
+    color: #eee;
+    text-align: center;
+  }
+  h1 { font-size: 1.2rem; }
+  #reader { width: 100%; border-radius: 12px; overflow: hidden; }
+  #resultado {
+    margin-top: 16px;
+    padding: 12px;
+    background: #222;
+    border-radius: 8px;
+    word-break: break-all;
+    text-align: left;
+    font-size: 0.9rem;
+    display: none;
+  }
+  #resultado a { color: #4da3ff; }
+  button {
+    margin-top: 12px;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    background: #4da3ff;
+    color: #fff;
+    font-size: 1rem;
+  }
+  #estado { font-size: 0.85rem; color: #aaa; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<h1>Escanea el código QR</h1>
+<div id="estado">Apunta la cámara al QR y acércate hasta que enfoque</div>
+
+<div id="reader"></div>
+
+<div id="resultado"></div>
+<button id="btnReset" style="display:none;">Escanear otro</button>
+
+<script>
+const resultadoDiv = document.getElementById('resultado');
+const estadoDiv = document.getElementById('estado');
+const btnReset = document.getElementById('btnReset');
+
+const config = {
+  fps: 10,
+  qrbox: { width: 280, height: 280 },
+  aspectRatio: 1.0,
+  // Ayuda con QR densos: usa toda la resolución disponible de la cámara
+  videoConstraints: {
+    facingMode: "environment",
+    width: { ideal: 1920 },
+    height: { ideal: 1080 }
+  }
+};
+
+const html5QrCode = new Html5Qrcode("reader");
+
+function onScanSuccess(decodedText) {
+  html5QrCode.stop().then(() => {
+    document.getElementById('reader').style.display = 'none';
+    estadoDiv.style.display = 'none';
+    resultadoDiv.style.display = 'block';
+
+    let contenidoHTML = `<strong>Contenido leído:</strong><br>${decodedText}`;
+    if (decodedText.startsWith('http')) {
+      contenidoHTML += `<br><br><a href="${decodedText}" target="_blank">Abrir enlace</a>`;
+    }
+    resultadoDiv.innerHTML = contenidoHTML;
+    btnReset.style.display = 'inline-block';
+  });
+}
+
+function iniciarEscaneo() {
+  resultadoDiv.style.display = 'none';
+  document.getElementById('reader').style.display = 'block';
+  estadoDiv.style.display = 'block';
+  btnReset.style.display = 'none';
+
+  html5QrCode.start(
+    { facingMode: "environment" },
+    config,
+    onScanSuccess
+  ).catch(err => {
+    estadoDiv.textContent = 'No se pudo acceder a la cámara: ' + err;
+  });
+}
+
+btnReset.addEventListener('click', iniciarEscaneo);
+
+iniciarEscaneo();
+</script>
+
+</body>
+</html>
