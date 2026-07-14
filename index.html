@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lector QR</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.0/dist/iife/reader/index.js"></script>
 <style>
   body {
     font-family: -apple-system, Arial, sans-serif;
@@ -16,7 +16,22 @@
     text-align: center;
   }
   h1 { font-size: 1.2rem; }
-  #reader { width: 100%; border-radius: 12px; overflow: hidden; }
+  #videoWrap {
+    position: relative;
+    width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #000;
+  }
+  video { width: 100%; display: block; }
+  #overlay {
+    position: absolute;
+    top: 15%; left: 15%; right: 15%; bottom: 15%;
+    border: 3px solid #4da3ff;
+    border-radius: 12px;
+    pointer-events: none;
+  }
+  canvas { display: none; }
   #resultado {
     margin-top: 16px;
     padding: 12px;
@@ -38,7 +53,6 @@
     font-size: 0.95rem;
     cursor: pointer;
   }
-  button.secundario { background: #444; }
   #estado { font-size: 0.85rem; color: #aaa; margin-top: 8px; min-height: 1.2em; }
   #errorLog {
     margin-top: 10px;
@@ -50,7 +64,7 @@
     text-align: left;
     color: #ff9a9a;
     display: none;
-    max-height: 120px;
+    max-height: 140px;
     overflow-y: auto;
   }
   .fallback {
@@ -74,9 +88,13 @@
 <body>
 
 <h1>Escanea el código QR</h1>
-<div id="estado">Apunta la cámara al QR y acércate hasta que enfoque</div>
+<div id="estado">Cargando motor de lectura...</div>
 
-<div id="reader"></div>
+<div id="videoWrap">
+  <video id="video" playsinline muted autoplay></video>
+  <div id="overlay"></div>
+</div>
+<canvas id="canvas"></canvas>
 <div id="errorLog"></div>
 
 <div id="resultado"></div>
@@ -89,121 +107,147 @@
 </div>
 
 <script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
 const resultadoDiv = document.getElementById('resultado');
 const estadoDiv = document.getElementById('estado');
 const errorLogDiv = document.getElementById('errorLog');
 const btnReset = document.getElementById('btnReset');
 const fileInput = document.getElementById('fileInput');
 
-let erroresRecientes = 0;
-let ultimoError = '';
+let stream = null;
+let scanning = false;
+let scanTimer = null;
+let intentosSinExito = 0;
 
-// Config: qrbox grande y resolución alta para QR densos.
-// useBarCodeDetectorIfSupported activa el decodificador NATIVO del navegador
-// (mucho más robusto que la librería JS pura para QR con mucha densidad).
-const config = {
-  fps: 8,
-  qrbox: { width: 300, height: 300 },
-  aspectRatio: 1.0,
-  disableFlip: false,
-  videoConstraints: {
-    facingMode: "environment",
-    width: { ideal: 1920, min: 1280 },
-    height: { ideal: 1080, min: 720 }
-  },
-  experimentalFeatures: {
-    useBarCodeDetectorIfSupported: true
-  }
+const readerOptions = {
+  tryHarder: true,
+  formats: ["QRCode"],
+  maxNumberOfSymbols: 1
 };
 
-const html5QrCode = new Html5Qrcode("reader", { verbose: false });
-
-function mostrarResultado(decodedText) {
-  document.getElementById('reader').style.display = 'none';
+function mostrarResultado(text) {
+  detenerCamara();
+  document.getElementById('videoWrap').style.display = 'none';
   estadoDiv.style.display = 'none';
   errorLogDiv.style.display = 'none';
   resultadoDiv.style.display = 'block';
 
-  let contenidoHTML = `<strong>Contenido leído:</strong><br>${decodedText}`;
-  if (decodedText.startsWith('http')) {
-    contenidoHTML += `<br><br><a href="${decodedText}" target="_blank">Abrir enlace</a>`;
+  let html = `<strong>Contenido leído:</strong><br>${text}`;
+  if (text.startsWith('http')) {
+    html += `<br><br><a href="${text}" target="_blank">Abrir enlace</a>`;
   }
-  resultadoDiv.innerHTML = contenidoHTML;
+  resultadoDiv.innerHTML = html;
   btnReset.style.display = 'inline-block';
 }
 
-function onScanSuccess(decodedText) {
-  html5QrCode.stop().then(() => {
-    mostrarResultado(decodedText);
-  }).catch(() => {
-    // Si ya estaba detenido, igual mostramos el resultado
-    mostrarResultado(decodedText);
-  });
+function mostrarError(msg) {
+  errorLogDiv.style.display = 'block';
+  errorLogDiv.textContent = msg;
 }
 
-function onScanFailure(error) {
-  // Esto se dispara MUCHAS veces por segundo mientras no encuentra QR,
-  // así que solo lo usamos para detectar si llevamos rato sin éxito.
-  erroresRecientes++;
-  ultimoError = error;
-  if (erroresRecientes === 60) {
-    errorLogDiv.style.display = 'block';
-    errorLogDiv.innerHTML =
-      'Llevamos varios segundos sin poder leer el QR.<br>' +
-      'Sugerencias: acércate más, evita reflejos de luz sobre el papel, ' +
-      'asegúrate que el QR completo esté dentro del recuadro, o usa la opción de "Subir foto" abajo.';
+async function decodeFrame() {
+  if (!scanning || video.videoWidth === 0) return;
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  try {
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const results = await ZXingWASM.readBarcodes(imageData, readerOptions);
+    if (results && results.length > 0 && results[0].text) {
+      mostrarResultado(results[0].text);
+      return;
+    }
+    intentosSinExito++;
+    if (intentosSinExito === 25) {
+      mostrarError(
+        'Llevamos varios segundos sin poder leer el QR. ' +
+        'Sugerencias: acércate más, evita reflejos de luz sobre el papel, ' +
+        'asegúrate que el QR completo esté dentro del recuadro, ' +
+        'o usa la opción de "Subir foto" abajo (suele funcionar mejor con QR muy densos).'
+      );
+    }
+  } catch (e) {
+    // Frame sin QR válido, seguimos intentando
+  }
+
+  scanTimer = setTimeout(decodeFrame, 350);
+}
+
+function detenerCamara() {
+  scanning = false;
+  if (scanTimer) clearTimeout(scanTimer);
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
   }
 }
 
-function iniciarEscaneo() {
-  erroresRecientes = 0;
-  resultadoDiv.style.display = 'none';
+async function iniciarCamara() {
+  intentosSinExito = 0;
   errorLogDiv.style.display = 'none';
-  document.getElementById('reader').style.display = 'block';
-  estadoDiv.style.display = 'block';
+  resultadoDiv.style.display = 'none';
   btnReset.style.display = 'none';
+  document.getElementById('videoWrap').style.display = 'block';
+  estadoDiv.style.display = 'block';
+  estadoDiv.textContent = 'Apunta la cámara al QR y acércate hasta que enfoque';
 
-  html5QrCode.start(
-    { facingMode: "environment" },
-    config,
-    onScanSuccess,
-    onScanFailure
-  ).catch(err => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      }
+    });
+    video.srcObject = stream;
+    await video.play();
+    scanning = true;
+    decodeFrame();
+  } catch (err) {
     estadoDiv.textContent = '';
-    errorLogDiv.style.display = 'block';
-    errorLogDiv.textContent = 'No se pudo acceder a la cámara: ' + err;
-  });
+    mostrarError('No se pudo acceder a la cámara: ' + err.message);
+  }
 }
 
 btnReset.addEventListener('click', () => {
   fileInput.value = '';
-  iniciarEscaneo();
+  iniciarCamara();
 });
 
-// Respaldo: decodificar desde una foto subida (mejor resolución que el video)
-fileInput.addEventListener('change', (e) => {
+fileInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  html5QrCode.stop().catch(() => {});
+  detenerCamara();
+  estadoDiv.style.display = 'block';
   estadoDiv.textContent = 'Procesando imagen...';
   errorLogDiv.style.display = 'none';
 
-  html5QrCode.scanFile(file, true)
-    .then(decodedText => {
-      mostrarResultado(decodedText);
-    })
-    .catch(err => {
+  try {
+    const results = await ZXingWASM.readBarcodes(file, readerOptions);
+    if (results && results.length > 0 && results[0].text) {
+      mostrarResultado(results[0].text);
+    } else {
       estadoDiv.textContent = '';
-      errorLogDiv.style.display = 'block';
-      errorLogDiv.textContent =
-        'No se pudo leer el QR de la imagen (' + err + '). ' +
-        'Intenta con una foto más nítida, bien iluminada y sin reflejos, ' +
-        'tomada de frente al QR.';
-    });
+      mostrarError(
+        'No se encontró ningún QR en esa imagen. Intenta con una foto más nítida, ' +
+        'bien iluminada, sin reflejos y tomada de frente al QR.'
+      );
+    }
+  } catch (err) {
+    estadoDiv.textContent = '';
+    mostrarError('Error al procesar la imagen: ' + err.message);
+  }
 });
 
-iniciarEscaneo();
+window.addEventListener('load', () => {
+  estadoDiv.textContent = 'Iniciando cámara...';
+  iniciarCamara();
+});
 </script>
 
 </body>
