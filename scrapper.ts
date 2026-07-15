@@ -24,8 +24,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as cheerio from "npm:cheerio@1.0.0";
 
 const supabase = createClient(
-  Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  Deno.env.get("https://csshalgmcaeeuhehfmia.supabase.co")!,
+  Deno.env.get("postgresql://postgres:ThebestTorgo03re5151-@db.csshalgmcaeeuhehfmia.supabase.co:5432/postgres")!
 );
 
 const corsHeaders = {
