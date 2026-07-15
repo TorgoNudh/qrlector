@@ -107,6 +107,10 @@
 </div>
 
 <script>
+// --- Configuración de Supabase (reemplaza con los datos de tu proyecto) ---
+const SUPABASE_FUNCTION_URL = 'https://TU-PROYECTO.supabase.co/functions/v1/scrape-factura';
+const SUPABASE_ANON_KEY = 'TU-ANON-KEY';
+
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -140,6 +144,44 @@ function mostrarResultado(text) {
   }
   resultadoDiv.innerHTML = html;
   btnReset.style.display = 'inline-block';
+
+  // Si parece una factura del DGI, mandamos automáticamente a procesar y guardar
+  if (text.includes('dgi-fep.mef.gob.pa')) {
+    procesarFactura(text);
+  }
+}
+
+async function procesarFactura(url) {
+  const cajaProcesando = document.createElement('div');
+  cajaProcesando.style.marginTop = '12px';
+  cajaProcesando.style.color = '#4da3ff';
+  cajaProcesando.textContent = 'Guardando factura en la base de datos...';
+  resultadoDiv.appendChild(cajaProcesando);
+
+  try {
+    const resp = await fetch(SUPABASE_FUNCTION_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ url })
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      cajaProcesando.style.color = '#ff9a9a';
+      cajaProcesando.textContent = 'No se pudo guardar: ' + (data.error || 'error desconocido');
+      return;
+    }
+
+    cajaProcesando.style.color = '#7fdc7f';
+    cajaProcesando.innerHTML =
+      `Guardado ✓<br>Emisor: ${data.emisor || '—'}<br>Total: ${data.total ?? '—'}<br>Productos: ${data.items}`;
+  } catch (err) {
+    cajaProcesando.style.color = '#ff9a9a';
+    cajaProcesando.textContent = 'Error de red al guardar: ' + err.message;
+  }
 }
 
 function mostrarError(msg) {
