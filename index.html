@@ -165,7 +165,7 @@ async function procesarFactura(url) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+         'apikey': SUPABASE_PUBLISHABLE_KEY
       },
       body: JSON.stringify({ url })
     });
