@@ -110,8 +110,7 @@
 // --- Configuración de Supabase (reemplaza con los datos de tu proyecto) ---
 const SUPABASE_FUNCTION_URL = 'https://csshalgmcaeeuhehfmia.supabase.co/functions/v1/swift-endpoint';
 // Usa la "Publishable key" (empieza con sb_publishable_...) de Settings > API Keys
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_13KesYym-1LzGBoKd66VnA_UzrXkACk';
-  
+const SUPABASE_PUBLISHABLE_KEY = 'PEGA-AQUI-TU-PUBLISHABLE-KEY';
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
@@ -165,7 +164,7 @@ async function procesarFactura(url) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-         'apikey': SUPABASE_PUBLISHABLE_KEY
+        'apikey': SUPABASE_PUBLISHABLE_KEY
       },
       body: JSON.stringify({ url })
     });
@@ -173,7 +172,8 @@ async function procesarFactura(url) {
 
     if (!resp.ok) {
       cajaProcesando.style.color = '#ff9a9a';
-      cajaProcesando.textContent = 'No se pudo guardar: ' + (data.error || 'error desconocido');
+      cajaProcesando.textContent = 'No se pudo guardar: ' +
+        (typeof data.error === 'string' ? data.error : JSON.stringify(data.error) || 'error desconocido');
       return;
     }
 
